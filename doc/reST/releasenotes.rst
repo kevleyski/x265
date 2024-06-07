@@ -1,6 +1,209 @@
 *************
 Release Notes
 *************
+
+Version 3.6
+===========
+
+Release date - 4th April, 2024.
+
+New feature
+-----------
+1. Segment based Ratecontrol (SBRC) feature.
+2. Motion-Compensated Spatio-Temporal Filtering.
+3. Scene-cut aware qp - BBAQ (Bidirectional Boundary Aware Quantization).
+4. Histogram-Based Scene Change Detection.
+5. Film-Grain characteristics as a SEI message to support Film Grain Synthesis (FGS).
+6. Add temporal layer implementation (Hierarchical B-frame implementation).
+
+Enhancements to existing features
+---------------------------------
+1. Added Dolby Vision 8.4 Profile Support.
+
+
+API changes
+-----------
+1. Add command line parameter for SBRC feature :option:`--sbrc`.
+2. Add command line parameter for mcstf feature :option:`--mcstf`.
+3. Add command line parameters for the scene cut aware qp feature :option:`--scenecut-aware-qp` and :option:`--masking-strength`.
+4. Add command line parameters for Histogram-Based Scene Change Detection :option:`--hist-scenecut`.
+5. Add command line parameters for film grain characteristics as a SEI message to the bitstream :option:`--film-grain`.
+6. cli: add new option :option:`--cra-nal` (Force NAL type to CRA to all the frames expect for the first frame, works only with :option:`--keyint` is 1).
+
+Optimizations
+---------------------
+1. ARM64 NEON optimizations:- Several time-consuming C functions have been optimized for the targeted platform - aarch64. The overall performance increased by around 20%.
+2. SVE/SVE2 optimizations.
+
+
+Bug fixes
+---------
+1. Linux bug to utilize all the cores.
+2. Crash with hist-scenecut build when source resolution is not multiple of minCuSize.
+3. 32bit and 64bit builds generation for ARM.
+4. bugs in zonefile feature (Reflect Zonefile Parameters inside Lookahead, extra IDR issue, Avg I Slice QP value issue etc.).
+5. Add x86 ASM implementation for subsampling luma.
+6. Fix for abrladder segfault with load reuse level 1.
+7. Reorder miniGOP based on temporal layer hierarchy and add support for more B frames. 
+8. Add MacOS aarch64 build support.
+9. Fix boundary condition issue for Gaussian filter.
+
+
+Version 3.5
+===========
+
+Release date - 16th March, 2021.
+
+New feature
+-----------
+1. Real-time VBV for ABR (Average BitRate) encodes in –pass 2 using :option:`--vbv-live-multi-pass`: Improves VBV compliance with no significant impact on coding efficiency.
+
+Enhancements to existing features
+---------------------------------
+1. Improved hist-based scene cut algorithm: Reduces false positives by leveraging motion and scene transition info.
+2. Support for RADL pictures at IDR scene cuts: Improves coding efficiency with no significant impact on performance.
+3. Bidirectional scene cut aware Frame Quantizer Selection: Saves bits than forward masking with no noticeable perceptual quality difference.
+
+API changes
+-----------
+1. Additions to x265_param structure to support the newly added features and encoder enhancements.
+2. New x265_param options :option:`--min-vbv-fullness` and :option:`--max-vbv-fullness` to control min and max VBV fullness.
+
+Bug fixes
+---------
+1. Incorrect VBV lookahead in :option:`--analysis-load` + :option:`--scale-factor`.
+2. Encoder hang when VBV is used with slices.
+3. QP spikes in the row-level VBV rate-control when WPP enabled.
+4. Encoder crash in :option:`--abr-ladder`.
+
+Version 3.4
+===========
+
+Release date - 29th May, 2020.
+
+New features
+------------
+1. **Edge-aware quadtree partitioning** to terminate CU depth recursion based on edge information. :option:`--rskip` level 2 enables the feature and  :option:`--rskip-edge-threshold` denotes the minimum expected edge-density percentage within the CU, below which the recursion is skipped. Experimental feature.
+2. Application-level feature :option:`--abr-ladder` for automating efficient ABR ladder generation. Shows ~65% savings in the over-all turn-around time required for the generation of a typical Apple HLS ladder in Intel(R) Xeon(R) Platinum 8280 CPU @ 2.70GHz over a sequential ABR-ladder generation approach that leverages save-load architecture.
+
+Enhancements to existing features
+---------------------------------
+1. Improved efficiency in 2-pass rate-control algorithm. The savings in the bitrate is ~1.72% with visual improvement in quality in the initial 1-2 secs.
+
+Encoder enhancements
+--------------------
+1. Faster ARM64 encodes enabled by ASM contributions from Huawei. The speed-up over no-asm version for 1080p encodes @ medium preset is ~15% in a 16 core H/W.
+2. Strict VBV conformance in zone encoding.
+
+Bug fixes
+---------
+1. Multi-pass encode failures with :option:`--frame-dup`.
+2. Corrupted bitstreams with :option:`--hist-scenecut` when input depth and internal bit-depth differ.
+3. Incorrect analysis propagation in multi-level save-load architecture.
+4. Failure in detecting NUMA packages installed in non-standard directories.
+
+Version 3.3
+===========
+
+Release date - 17th February, 2020.
+
+New features
+------------
+1. **Adaptive frame duplication** to identify and skip encoding of near-identical frames and signal the duplication info to the decoder via pic_struct SEI. :option:`frame-dup` to enable frame duplication and :option:`--dup-threshold` to set the threshold for frame similarity (optional).
+2. **Boundary aware quantization** to cut off bits from frames following scene-cut. This leverages the inability of HVS to perceive fine details during scene changes and saves bits. :option:`--scenecut-aware-qp` , :option:`--scenecut-window` and :option:`--max-qp-delta` to enable boundary aware frame quantization, to set window size (optional) and to set QP offset (optional).
+3. **Improved scene-cut detection** using edge and chroma histograms. :option:`--hist-scenecut` to enable the feature and :option:`--hist-threshold` (optional) to provide threshold for determining scene cuts.
+
+Enhancements to existing features
+---------------------------------
+1. :option:`--hme-range` to modify search range for HME levels L0, L1, and L2.
+2. Improved performance of AQ mode 4 by reducing memory foot print.
+3. Introduced :option:`--analysis-save-reuse-level` and :option:`--analysis-load-reuse-level` to de-couple reuse levels of :option:`--analysis-save` and :option:`--analysis-load`. Turnaround time of ABR encoding can be reduced by properly leveraging these options.
+  
+Encoder enhancements
+--------------------
+1. Improved VBV lookahead to eliminate blocky artifacts in Intra frames coming towards end of the title.
+
+API changes
+-----------
+1. New API function **x265_encoder_reconfig_zone()** to invoke zone reconfiguration dynamically.  
+2. Renamed :option:`--hdr` to :option:`--hdr10`. :option:`--hdr` will be deprecated in the upcoming major release. 
+3. Renamed :option:`--hdr-opt` to :option:`--hdr10-opt`. :option:`--hdr-opt` will be deprecated in the upcoming major release.
+4. Additions to **x265_param** structure to support the newly added features and encoder enhancements.
+
+Bug fixes
+---------
+1. Output change in :option:`--analysis-load` at inter-refine levels 2 and 3.
+2. Encoder crash with zones.
+3. Integration issues with SVT v1.4.1.
+4. Fixed bug in :option:`--limit-tu` 3 and 4 while loading co-located CU's TU depth.
+
+Version 3.2
+===========
+
+Release date - 25th September, 2019.
+
+New features
+------------
+1. 3-level hierarchical motion estimation using :option:`--hme` and :option:`--hme-search`.
+2. New AQ mode (:option:`--aq-mode` 4) with variance and edge information.
+3. :option:`selective-sao` to selectively enable SAO at slice level.
+
+Enhancements to existing features
+---------------------------------
+1. New implementation of :option:`--refine-mv` with 3 refinement levels.
+
+Encoder enhancements
+--------------------
+1. Improved quality in the frames following dark scenes in ABR mode.
+
+API changes
+-----------
+1. Additions to x265_param structure to support the newly added features :option:`--hme`, :option:`--hme-search` and :option:`selective-sao`.
+
+Bug fixes
+---------
+1. Fixed encoder crash with :option:`--zonefile` during failures in encoder_open().
+2. Fixed JSON11 build errors with HDR10+ on MacOS high sierra.
+3. Signalling out of range scaling list data fixed.
+4. Inconsistent output fix for 2-pass rate-control with cutree ON.
+
+Known issues
+------------
+1. Build dependency on changeset cf37911 of SVT-HEVC.
+
+Version 3.1
+===========
+
+Release date - 18th June, 2019.
+
+New features
+----------------
+1. x265 can invoke SVT-HEVC library for encoding through :option:`--svt`.
+2. x265 can now accept interlaced inputs directly (no need to separate fields), and sends it to the encoder with proper fps and frame-size through :option:`--field`.
+3. :option:`--fades` can detect and handle fade-in regions. This option will force I-slice and initialize RC history for the brightest frame after fade-in.
+ 
+API changes
+-----------
+1. A new flag to signal MasterDisplayParams and maxCll/Fall separately
+
+Encoder enhancements
+--------------------
+1. Improved the performance of inter-refine level 1 by skipping the evaluation of smaller CUs when the current block is decided as "skip" by the save mode.
+2. New AVX2 primitives to improve the performance of encodes that enable :option:`--ssim-rd`.
+3. Improved performance in medium preset with negligible loss in quality.
+
+Bug fixes
+---------
+1. Bug fixes for zones.
+2. Fixed wrap-around from MV structure overflow occurred around 8K pixels or over.
+3. Fixed issues in configuring cbQpOffset and crQpOffset for 444 input
+4. Fixed cutree offset computation in 2nd pass encodes.
+
+Known issues
+------------
+1. AVX512 main12 asm disabling.
+2. Inconsistent output with 2-pass due to cutree offset sharing.
+
 Version 3.0
 ===========
 

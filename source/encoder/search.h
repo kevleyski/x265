@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013-2017 MulticoreWare, Inc
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
 *          Min Chen <chenm003@163.com>
@@ -283,8 +283,8 @@ public:
     int32_t         m_maxTUDepth;
     uint16_t        m_limitTU;
 
-    int16_t         m_sliceMaxY;
-    int16_t         m_sliceMinY;
+    int32_t         m_sliceMaxY;
+    int32_t         m_sliceMinY;
 
 #if DETAILED_CU_STATS
     /* Accumulate CU statistics separately for each frame encoder */
@@ -310,7 +310,7 @@ public:
 
     // estimation inter prediction (non-skip)
     void     predInterSearch(Mode& interMode, const CUGeom& cuGeom, bool bChromaMC, uint32_t masks[2]);
-    void     searchMV(Mode& interMode, const PredictionUnit& pu, int list, int ref, MV& outmv, MV mvp, int numMvc, MV* mvc);
+    void     searchMV(Mode& interMode, int list, int ref, MV& outmv, MV mvp[3], int numMvc, MV* mvc);
     // encode residual and compute rd-cost for inter mode
     void     encodeResAndCalcRdInterCU(Mode& interMode, const CUGeom& cuGeom);
     void     encodeResAndCalcRdSkipCU(Mode& interMode);
@@ -425,6 +425,7 @@ protected:
     void     setSearchRange(const CUData& cu, const MV& mvp, int merange, MV& mvmin, MV& mvmax) const;
     uint32_t mergeEstimation(CUData& cu, const CUGeom& cuGeom, const PredictionUnit& pu, int puIdx, MergeData& m);
     static void getBlkBits(PartSize cuMode, bool bPSlice, int puIdx, uint32_t lastMode, uint32_t blockBit[3]);
+    void      updateMVP(const MV amvp, const MV& mv, uint32_t& outBits, uint32_t& outCost, const MV& alterMVP);
 
     /* intra helper functions */
     enum { MAX_RD_INTRA_MODES = 16 };

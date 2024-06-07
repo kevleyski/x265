@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -136,6 +136,9 @@ protected:
     bool check_pelFilterChroma_H(pelFilterChroma_t ref, pelFilterChroma_t opt);
     bool check_integral_initv(integralv_t ref, integralv_t opt);
     bool check_integral_inith(integralh_t ref, integralh_t opt);
+    bool check_ssimDist(ssimDistortion_t ref, ssimDistortion_t opt);
+    bool check_normFact(normFactor_t ref, normFactor_t opt, int block);
+    bool check_downscaleluma_t(downscaleluma_t ref, downscaleluma_t opt);
 
 public:
 

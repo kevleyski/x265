@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013-2017 MulticoreWare, Inc
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Author: Steve Borho <steve@borho.org>
 *         Min Chen <chenm003@163.com>
@@ -56,12 +56,48 @@ Frame::Frame()
     m_addOnCtuInfo = NULL;
     m_addOnPrevChange = NULL;
     m_classifyFrame = false;
+    m_fieldNum = 0;
+    m_picStruct = 0;
+    m_edgePic = NULL;
+    m_gaussianPic = NULL;
+    m_thetaPic = NULL;
+    m_edgeBitPlane = NULL;
+    m_edgeBitPic = NULL;
+    m_isInsideWindow = 0;
+
+    // mcstf
+    m_isSubSampled = NULL;
+    m_mcstf = NULL;
+    m_refPicCnt[0] = 0;
+    m_refPicCnt[1] = 0;
+    m_nextMCSTF = NULL;
+    m_prevMCSTF = NULL;
+
+    m_tempLayer = 0;
+    m_sameLayerRefPic = false;
 }
 
 bool Frame::create(x265_param *param, float* quantOffsets)
 {
     m_fencPic = new PicYuv;
     m_param = param;
+
+    if (m_param->bEnableTemporalFilter)
+    {
+        m_mcstf = new TemporalFilter;
+        m_mcstf->init(param);
+
+        m_fencPicSubsampled2 = new PicYuv;
+        m_fencPicSubsampled4 = new PicYuv;
+
+        if (!m_fencPicSubsampled2->createScaledPicYUV(param, 2))
+            return false;
+        if (!m_fencPicSubsampled4->createScaledPicYUV(param, 4))
+            return false;
+
+        CHECKED_MALLOC_ZERO(m_isSubSampled, int, 1);
+    }
+
     CHECKED_MALLOC_ZERO(m_rcData, RcStats, 1);
 
     if (param->bCTUInfo)
@@ -96,6 +132,33 @@ bool Frame::create(x265_param *param, float* quantOffsets)
         CHECKED_MALLOC_ZERO(m_classifyCount, uint32_t, size);
     }
 
+    if (param->rc.aqMode == X265_AQ_EDGE || (param->rc.zonefileCount && param->rc.aqMode != 0))
+    {
+        uint32_t numCuInWidth = (param->sourceWidth + param->maxCUSize - 1) / param->maxCUSize;
+        uint32_t numCuInHeight = (param->sourceHeight + param->maxCUSize - 1) / param->maxCUSize;
+        uint32_t m_lumaMarginX = param->maxCUSize + 32; // search margin and 8-tap filter half-length, padded for 32-byte alignment
+        uint32_t m_lumaMarginY = param->maxCUSize + 16; // margin for 8-tap filter and infinite padding
+        intptr_t m_stride = (numCuInWidth * param->maxCUSize) + (m_lumaMarginX << 1);
+        int maxHeight = numCuInHeight * param->maxCUSize;
+
+        m_edgePic = X265_MALLOC(pixel, m_stride * (maxHeight + (m_lumaMarginY * 2)));
+        m_gaussianPic = X265_MALLOC(pixel, m_stride * (maxHeight + (m_lumaMarginY * 2)));
+        m_thetaPic = X265_MALLOC(pixel, m_stride * (maxHeight + (m_lumaMarginY * 2)));
+    }
+
+    if (param->recursionSkipMode == EDGE_BASED_RSKIP)
+    {
+        uint32_t numCuInWidth = (param->sourceWidth + param->maxCUSize - 1) / param->maxCUSize;
+        uint32_t numCuInHeight = (param->sourceHeight + param->maxCUSize - 1) / param->maxCUSize;
+        uint32_t lumaMarginX = param->maxCUSize + 32;
+        uint32_t lumaMarginY = param->maxCUSize + 16;
+        uint32_t stride = (numCuInWidth * param->maxCUSize) + (lumaMarginX << 1);
+        uint32_t maxHeight = numCuInHeight * param->maxCUSize;
+        uint32_t bitPlaneSize = stride * (maxHeight + (lumaMarginY * 2));
+        CHECKED_MALLOC_ZERO(m_edgeBitPlane, pixel, bitPlaneSize);
+        m_edgeBitPic = m_edgeBitPlane + lumaMarginY * stride + lumaMarginX;
+    }
+
     if (m_fencPic->create(param, !!m_param->bCopyPicToFrame) && m_lowres.create(param, m_fencPic, param->rc.qgSize))
     {
         X265_CHECK((m_reconColCount == NULL), "m_reconColCount was initialized");
@@ -112,6 +175,22 @@ bool Frame::create(x265_param *param, float* quantOffsets)
         return true;
     }
     return false;
+fail:
+    return false;
+}
+
+bool Frame::createSubSample()
+{
+
+    m_fencPicSubsampled2 = new PicYuv;
+    m_fencPicSubsampled4 = new PicYuv;
+
+    if (!m_fencPicSubsampled2->createScaledPicYUV(m_param, 2))
+        return false;
+    if (!m_fencPicSubsampled4->createScaledPicYUV(m_param, 4))
+        return false;
+    CHECKED_MALLOC_ZERO(m_isSubSampled, int, 1);
+    return true;
 fail:
     return false;
 }
@@ -170,6 +249,26 @@ void Frame::destroy()
             m_fencPic->destroy();
         delete m_fencPic;
         m_fencPic = NULL;
+    }
+
+    if (m_param->bEnableTemporalFilter)
+    {
+
+        if (m_fencPicSubsampled2)
+        {
+            m_fencPicSubsampled2->destroy();
+            delete m_fencPicSubsampled2;
+            m_fencPicSubsampled2 = NULL;
+        }
+
+        if (m_fencPicSubsampled4)
+        {
+            m_fencPicSubsampled4->destroy();
+            delete m_fencPicSubsampled4;
+            m_fencPicSubsampled4 = NULL;
+        }
+        delete m_mcstf;
+        X265_FREE(m_isSubSampled);
     }
 
     if (m_reconPic)
@@ -232,7 +331,8 @@ void Frame::destroy()
         X265_FREE(m_addOnPrevChange);
         m_addOnPrevChange = NULL;
     }
-    m_lowres.destroy();
+
+    m_lowres.destroy(m_param);
     X265_FREE(m_rcData);
 
     if (m_param->bDynamicRefine)
@@ -240,5 +340,18 @@ void Frame::destroy()
         X265_FREE_ZERO(m_classifyRd);
         X265_FREE_ZERO(m_classifyVariance);
         X265_FREE_ZERO(m_classifyCount);
+    }
+
+    if (m_param->rc.aqMode == X265_AQ_EDGE || (m_param->rc.zonefileCount && m_param->rc.aqMode != 0))
+    {
+        X265_FREE(m_edgePic);
+        X265_FREE(m_gaussianPic);
+        X265_FREE(m_thetaPic);
+    }
+
+    if (m_param->recursionSkipMode == EDGE_BASED_RSKIP)
+    {
+        X265_FREE_ZERO(m_edgeBitPlane);
+        m_edgeBitPic = NULL;
     }
 }

@@ -2,7 +2,7 @@
  * pixel.h: x86 pixel metrics
  *****************************************************************************
  * Copyright (C) 2003-2013 x264 project
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Laurent Aimar <fenrir@via.ecp.fr>
  *          Loren Merritt <lorenm@u.washington.edu>
@@ -60,7 +60,9 @@ pixel PFX(planeClipAndMax_avx2)(pixel *src, intptr_t stride, int width, int heig
     FUNCDEF_TU_S(sse_t, pixel_ssd_s_aligned, cpu, const int16_t*, intptr_t); \
     FUNCDEF_TU(uint64_t, pixel_var, cpu, const pixel*, intptr_t); \
     FUNCDEF_TU(int, psyCost_pp, cpu, const pixel* source, intptr_t sstride, const pixel* recon, intptr_t rstride); \
-    FUNCDEF_TU(int, psyCost_ss, cpu, const int16_t* source, intptr_t sstride, const int16_t* recon, intptr_t rstride)
+    FUNCDEF_TU(int, psyCost_ss, cpu, const int16_t* source, intptr_t sstride, const int16_t* recon, intptr_t rstride); \
+    FUNCDEF_TU_S2(void, ssimDist, cpu, const pixel *fenc, uint32_t fStride, const pixel *recon, intptr_t rstride, uint64_t *ssBlock, int shift, uint64_t *ac_k); \
+    FUNCDEF_TU_S2(void, normFact, cpu, const pixel *src, uint32_t blockSize, int shift, uint64_t *z_k)
 
 DECL_PIXELS(mmx);
 DECL_PIXELS(mmx2);

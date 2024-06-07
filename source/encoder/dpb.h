@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -40,6 +40,7 @@ public:
     int                m_lastIDR;
     int                m_pocCRA;
     int                m_bOpenGOP;
+	int                m_craNal;
     int                m_bhasLeadingPicture;
     bool               m_bRefreshPending;
     bool               m_bTemporalSublayer;
@@ -52,18 +53,22 @@ public:
         m_lastIDR = 0;
         m_pocCRA = 0;
         m_bhasLeadingPicture = param->radl;
-        for (int i = 0; i < param->rc.zonefileCount; i++)
+        if (param->bResetZoneConfig)
         {
-            if (param->rc.zones[i].zoneParam->radl)
+            for (int i = 0; i < param->rc.zonefileCount ; i++)
             {
-                m_bhasLeadingPicture = param->rc.zones[i].zoneParam->radl;
-                break;
+                if (param->rc.zones[i].zoneParam->radl)
+                {
+                    m_bhasLeadingPicture = param->rc.zones[i].zoneParam->radl;
+                    break;
+                }
             }
         }
         m_bRefreshPending = false;
         m_frameDataFreeList = NULL;
         m_bOpenGOP = param->bOpenGOP;
-        m_bTemporalSublayer = !!param->bEnableTemporalSubLayers;
+		m_craNal = param->craNal;
+        m_bTemporalSublayer = (param->bEnableTemporalSubLayers > 2);
     }
 
     ~DPB();
@@ -74,10 +79,13 @@ public:
 
 protected:
 
-    void computeRPS(int curPoc, bool isRAP, RPS * rps, unsigned int maxDecPicBuffer);
+    void computeRPS(int curPoc,int tempId, bool isRAP, RPS * rps, unsigned int maxDecPicBuffer);
 
-    void applyReferencePictureSet(RPS *rps, int curPoc);
+    void applyReferencePictureSet(RPS *rps, int curPoc, int tempId, bool isTSAPicture);
+    bool getTemporalLayerNonReferenceFlag();
     void decodingRefreshMarking(int pocCurr, NalUnitType nalUnitType);
+    bool isTemporalLayerSwitchingPoint(int curPoc, int tempId);
+    bool isStepwiseTemporalLayerSwitchingPoint(RPS *rps, int curPoc, int tempId);
 
     NalUnitType getNalUnitType(int curPoc, bool bIsKeyFrame);
 };

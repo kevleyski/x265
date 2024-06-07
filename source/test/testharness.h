@@ -1,8 +1,9 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
+ *          Yimeng Su <yimeng.su@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,7 +73,7 @@ protected:
 #include <x86intrin.h>
 #elif ( !defined(__APPLE__) && defined (__GNUC__) && defined(__ARM_NEON__))
 #include <arm_neon.h>
-#elif defined(__GNUC__) && (!defined(__clang__) || __clang_major__ < 4)
+#else
 /* fallback for older GCC/MinGW */
 static inline uint32_t __rdtsc(void)
 {
@@ -86,6 +87,8 @@ static inline uint32_t __rdtsc(void)
 
     // TO-DO: replace clock() function with appropriate ARM cpu instructions
     a = clock();
+#elif  X265_ARCH_ARM64
+    asm volatile("mrs %0, cntvct_el0" : "=r"(a));
 #endif
     return a;
 }
@@ -123,8 +126,8 @@ static inline uint32_t __rdtsc(void)
         x265_emms(); \
         float optperf = (10.0f * cycles / runs) / 4; \
         float refperf = (10.0f * refcycles / refruns) / 4; \
-        printf("\t%3.2fx ", refperf / optperf); \
-        printf("\t %-8.2lf \t %-8.2lf\n", optperf, refperf); \
+        printf(" | \t%3.2fx | ", refperf / optperf); \
+        printf("\t %-8.2lf | \t %-8.2lf\n", optperf, refperf); \
     }
 
 extern "C" {
@@ -135,7 +138,7 @@ int PFX(stack_pagealign)(int (*func)(), int align);
  * needs an explicit asm check because it only sometimes crashes in normal use. */
 intptr_t PFX(checkasm_call)(intptr_t (*func)(), int *ok, ...);
 float PFX(checkasm_call_float)(float (*func)(), int *ok, ...);
-#elif X265_ARCH_ARM == 0
+#elif (X265_ARCH_ARM == 0 && X265_ARCH_ARM64 == 0)
 #define PFX(stack_pagealign)(func, align) func()
 #endif
 

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Radhakrishnan VR <radhakrishnan@multicorewareinc.com>
  * 
@@ -795,7 +795,7 @@ function x265_count_nonzero_32_neon
     vmov            q2, q12
     vmov            q3, q14
 
-.loop:    
+.Loop:
     vldm            r0!, {q8-q15}
     subs            r1, #1
 
@@ -817,7 +817,7 @@ function x265_count_nonzero_32_neon
     vadd.s8         q1, q10
     vadd.s8         q2, q12
     vadd.s8         q3, q14
-    bgt            .loop
+    bgt            .Loop
 
     // sum
     vadd.s8         q0, q1

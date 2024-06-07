@@ -1,10 +1,11 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Gopu Govindaswamy <gopu@govindaswamy.org>
  *          Mandar Gurav <mandar@multicorewareinc.com>
  *          Mahesh Pittala <mahesh@multicorewareinc.com>
  *          Min Chen <chenm003@163.com>
+ *          Yimeng Su <yimeng.su@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -173,6 +174,8 @@ int main(int argc, char *argv[])
         { "AVX512", X265_CPU_AVX512 },
         { "ARMv6", X265_CPU_ARMV6 },
         { "NEON", X265_CPU_NEON },
+        { "SVE2", X265_CPU_SVE2 },
+        { "SVE", X265_CPU_SVE },
         { "FastNeonMRC", X265_CPU_FAST_NEON_MRC },
         { "", 0 },
     };
@@ -187,10 +190,10 @@ int main(int argc, char *argv[])
         else
             continue;
 
-#if X265_ARCH_X86
+#if defined(X265_ARCH_X86) || defined(X265_ARCH_ARM64)
         EncoderPrimitives vecprim;
         memset(&vecprim, 0, sizeof(vecprim));
-        setupInstrinsicPrimitives(vecprim, test_arch[i].flag);
+        setupIntrinsicPrimitives(vecprim, test_arch[i].flag);
         setupAliasPrimitives(vecprim);
         for (size_t h = 0; h < sizeof(harness) / sizeof(TestHarness*); h++)
         {
@@ -207,6 +210,7 @@ int main(int argc, char *argv[])
 
         EncoderPrimitives asmprim;
         memset(&asmprim, 0, sizeof(asmprim));
+
         setupAssemblyPrimitives(asmprim, test_arch[i].flag);
         setupAliasPrimitives(asmprim);
         memcpy(&primitives, &asmprim, sizeof(EncoderPrimitives));
@@ -227,9 +231,10 @@ int main(int argc, char *argv[])
 
     EncoderPrimitives optprim;
     memset(&optprim, 0, sizeof(optprim));
-#if X265_ARCH_X86
-    setupInstrinsicPrimitives(optprim, cpuid);
+#if defined(X265_ARCH_X86) || defined(X265_ARCH_ARM64)
+    setupIntrinsicPrimitives(optprim, cpuid);
 #endif
+
     setupAssemblyPrimitives(optprim, cpuid);
 
     /* Note that we do not setup aliases for performance tests, that would be

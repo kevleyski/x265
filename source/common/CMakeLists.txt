@@ -14,7 +14,7 @@ if(EXTRA_LIB)
 endif(EXTRA_LIB)
 
 if(ENABLE_ASSEMBLY)
-    set_source_files_properties(threading.cpp primitives.cpp PROPERTIES COMPILE_FLAGS -DENABLE_ASSEMBLY=1)
+    set_source_files_properties(threading.cpp primitives.cpp pixel.cpp PROPERTIES COMPILE_FLAGS -DENABLE_ASSEMBLY=1)
     list(APPEND VFLAGS "-DENABLE_ASSEMBLY=1")
 endif(ENABLE_ASSEMBLY)
 
@@ -97,6 +97,30 @@ if(ENABLE_ASSEMBLY AND (ARM OR CROSS_COMPILE_ARM))
     source_group(Assembly FILES ${ASM_PRIMITIVES})
 endif(ENABLE_ASSEMBLY AND (ARM OR CROSS_COMPILE_ARM))
 
+if(ENABLE_ASSEMBLY AND (ARM64 OR CROSS_COMPILE_ARM64))
+    if(GCC AND (CMAKE_CXX_FLAGS_RELEASE MATCHES "-O3"))
+        message(STATUS "Detected CXX compiler using -O3 optimization level")
+        add_definitions(-DAUTO_VECTORIZE=1)
+    endif()
+
+    set(C_SRCS asm-primitives.cpp pixel-prim.h pixel-prim.cpp filter-prim.h filter-prim.cpp dct-prim.h dct-prim.cpp loopfilter-prim.cpp loopfilter-prim.h intrapred-prim.cpp arm64-utils.cpp arm64-utils.h fun-decls.h)
+    enable_language(ASM)
+
+    # add ARM assembly/intrinsic files here
+    set(A_SRCS asm.S mc-a.S mc-a-common.S sad-a.S sad-a-common.S pixel-util.S pixel-util-common.S p2s.S p2s-common.S ipfilter.S ipfilter-common.S blockcopy8.S blockcopy8-common.S ssd-a.S ssd-a-common.S)
+    set(A_SRCS_SVE asm-sve.S blockcopy8-sve.S p2s-sve.S pixel-util-sve.S ssd-a-sve.S)
+    set(A_SRCS_SVE2 mc-a-sve2.S sad-a-sve2.S pixel-util-sve2.S ipfilter-sve2.S ssd-a-sve2.S)
+    set(VEC_PRIMITIVES)
+
+    set(ARM_ASMS "${A_SRCS}" CACHE INTERNAL "ARM Assembly Sources")
+    set(ARM_ASMS_SVE "${A_SRCS_SVE}" CACHE INTERNAL "ARM Assembly Sources that use SVE instruction set")
+    set(ARM_ASMS_SVE2 "${A_SRCS_SVE2}" CACHE INTERNAL "ARM Assembly Sources that use SVE2 instruction set")
+    foreach(SRC ${C_SRCS})
+        set(ASM_PRIMITIVES ${ASM_PRIMITIVES} aarch64/${SRC})
+    endforeach()
+    source_group(Assembly FILES ${ASM_PRIMITIVES})
+endif(ENABLE_ASSEMBLY AND (ARM64 OR CROSS_COMPILE_ARM64))
+
 if(POWER)
     set_source_files_properties(version.cpp PROPERTIES COMPILE_FLAGS -DX265_VERSION=${X265_VERSION})
     if(ENABLE_ALTIVEC)
@@ -151,4 +175,7 @@ add_library(common OBJECT
     predict.cpp  predict.h
     scalinglist.cpp scalinglist.h
     quant.cpp quant.h contexts.h
-    deblock.cpp deblock.h)
+    deblock.cpp deblock.h
+    scaler.cpp scaler.h
+    ringmem.cpp ringmem.h
+    temporalfilter.cpp temporalfilter.h)

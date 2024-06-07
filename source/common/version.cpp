@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -71,7 +71,7 @@
 #define ONOS    "[Unk-OS]"
 #endif
 
-#if X86_64
+#if defined(_LP64) || defined(_WIN64)
 #define BITS    "[64 bit]"
 #else
 #define BITS    "[32 bit]"

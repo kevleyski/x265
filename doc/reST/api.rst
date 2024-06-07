@@ -191,7 +191,15 @@ changes made to the parameters for auto-detection and other reasons::
 	 *      switched out of; using reconfig to switch between ultrafast and other
 	 *      presets is not recommended without a more fine-grained breakdown of
 	 *      parameters to take this into account. */
-	int x265_encoder_reconfig(x265_encoder *, x265_param *);
+    int x265_encoder_reconfig(x265_encoder *, x265_param *);
+
+**x265_encoder_reconfig_zone()** Used to reconfigure rate-contol settings of zones mid-encode::
+
+    /* x265_encoder_reconfig_zone:
+     *      Properties of the zone will be copied to encoder's param and will be used only to
+     *      influence rate-control decisions of the zone.
+     *      returns 0 on successful copy and negative on failure.*/
+    int x265_encoder_reconfig(x265_encoder *, x265_param *);
 
 **x265_get_slicetype_poc_and_scenecut()** may be used to fetch slice type, poc and scene cut information mid-encode::
 
@@ -411,21 +419,21 @@ CTU size::
 	void x265_cleanup(void);
 
 VMAF (Video Multi-Method Assessment Fusion)
-==========================================
+===========================================
 
 If you set the ENABLE_LIBVMAF cmake option to ON, then x265 will report per frame
 and aggregate VMAF score for the given input and dump the scores in csv file.
-The user also need to specify the :option:`--recon` in command line to get the VMAF scores.
+The user also need to specify the :option:`--recon` in command line to get the VMAF scores.::
  
     /* x265_calculate_vmafScore:
-     *    returns VMAF score for the input video.
-     *    This api must be called only after encoding was done. */
-    double x265_calculate_vmafscore(x265_param*, x265_vmaf_data*);
+	 *       returns VMAF score for the input video.
+	 *       This API must be called only after encoding was done. */
+	double x265_calculate_vmafscore(x265_param*, x265_vmaf_data*);
 
     /* x265_calculate_vmaf_framelevelscore:
-     *    returns VMAF score for each frame in a given input video. The frame level VMAF score does not include temporal scores. */
-    double x265_calculate_vmaf_framelevelscore(x265_vmaf_framedata*);
-    
+	 *       returns VMAF score for each frame in a given input video. The frame level VMAF score does not include temporal scores. */
+	double x265_calculate_vmaf_framelevelscore(x265_vmaf_framedata*);
+
 .. Note::
 
     When setting ENABLE_LIBVMAF cmake option to ON, it is recommended to

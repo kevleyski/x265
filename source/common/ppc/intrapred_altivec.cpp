@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Roger Moussalli <rmoussal@us.ibm.com>
  *          Min Chen <min.chen@multicorewareinc.com>
@@ -27,7 +27,7 @@
 #include <assert.h>
 #include <math.h>
 #include <cmath>
-#include <linux/types.h>
+#include <sys/types.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>

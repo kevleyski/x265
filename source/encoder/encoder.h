@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -32,6 +32,7 @@
 #include "nal.h"
 #include "framedata.h"
 #include "svt.h"
+#include "temporalfilter.h"
 #ifdef ENABLE_HDR10_PLUS
     #include "dynamicHDR10/hdr10plus.h"
 #endif
@@ -88,6 +89,9 @@ struct EncStats
 };
 
 #define MAX_NUM_REF_IDX 64
+#define DUP_BUFFER 2
+#define doubling 7
+#define tripling 8
 
 struct RefIdxLastGOP
 {
@@ -141,6 +145,17 @@ struct puOrientation
     }
 };
 
+struct AdaptiveFrameDuplication
+{
+    x265_picture* dupPic;
+    char* dupPlane;
+
+    //Flag to denote the availability of the picture buffer.
+    bool bOccupied;
+
+    //Flag to check whether the picture has duplicated.
+    bool bDup;
+};
 
 class FrameEncoder;
 class DPB;
@@ -148,6 +163,12 @@ class Lookahead;
 class RateControl;
 class ThreadPool;
 class FrameData;
+
+#define MAX_SCENECUT_THRESHOLD 1.0
+#define SCENECUT_STRENGTH_FACTOR 2.0
+#define MIN_EDGE_FACTOR 0.5
+#define MAX_EDGE_FACTOR 1.5
+#define SCENECUT_CHROMA_FACTOR 10.0
 
 class Encoder : public x265_encoder
 {
@@ -189,6 +210,10 @@ public:
     x265_param*        m_latestParam;     // Holds latest param during a reconfigure
     RateControl*       m_rateControl;
     Lookahead*         m_lookahead;
+    AdaptiveFrameDuplication* m_dupBuffer[DUP_BUFFER];      // picture buffer of size 2
+    /*Frame duplication: Two pictures used to compute PSNR */
+    pixel*             m_dupPicOne[3];
+    pixel*             m_dupPicTwo[3];
 
     bool               m_externalFlush;
     /* Collect statistics globally */
@@ -203,14 +228,13 @@ public:
     ScalingList        m_scalingList;      // quantization matrix information
     Window             m_conformanceWindow;
 
-    bool               m_emitCLLSEI;
     bool               m_bZeroLatency;     // x265_encoder_encode() returns NALs for the input picture, zero lag
     bool               m_aborted;          // fatal error detected
     bool               m_reconfigure;      // Encoder reconfigure in progress
     bool               m_reconfigureRc;
     bool               m_reconfigureZone;
 
-    int               m_saveCtuDistortionLevel;
+    int                m_saveCtuDistortionLevel;
 
     /* Begin intra refresh when one not in progress or else begin one as soon as the current 
      * one is done. Requires bIntraRefresh to be set.*/
@@ -227,11 +251,11 @@ public:
     Lock               m_rpsInSpsLock;
     int                m_rpsInSpsCount;
     /* For HDR*/
-    double                m_cB;
-    double                m_cR;
+    double             m_cB;
+    double             m_cR;
 
-    int                     m_bToneMap; // Enables tone-mapping
-    int                     m_enableNal;
+    int                m_bToneMap; // Enables tone-mapping
+    int                m_enableNal;
 
 #ifdef ENABLE_HDR10_PLUS
     const hdr10plus_api     *m_hdr10plus_api;
@@ -245,6 +269,8 @@ public:
 
     x265_sei_payload        m_prevTonemapPayload;
 
+    int                     m_zoneIndex;
+
     /* Collect frame level feature data */
     uint64_t*               m_rdCost;
     uint64_t*               m_variance;
@@ -253,6 +279,13 @@ public:
     Lock                    m_dynamicRefineLock;
 
     bool                    m_saveCTUSize;
+
+
+    ThreadSafeInteger* zoneReadCount;
+    ThreadSafeInteger* zoneWriteCount;
+    /* Film grain model file */
+    FILE* m_filmGrainIn;
+    OrigPicBuffer*          m_origPicBuffer;
 
     Encoder();
     ~Encoder()
@@ -284,6 +317,8 @@ public:
     int setAnalysisData(x265_analysis_data *analysis_data, int poc, uint32_t cuBytes);
 
     void getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs);
+
+    void getEndNalUnits(NALList& list, Bitstream& bs);
 
     void fetchStats(x265_stats* stats, size_t statsSizeBytes);
 
@@ -319,11 +354,17 @@ public:
 
     void finishFrameStats(Frame* pic, FrameEncoder *curEncoder, x265_frame_stats* frameStats, int inPoc);
 
-    int validateAnalysisData(x265_analysis_data* analysis, int readWriteFlag);
+    int validateAnalysisData(x265_analysis_validate* param, int readWriteFlag);
 
     void readUserSeiFile(x265_sei_payload& seiMsg, int poc);
 
     void calcRefreshInterval(Frame* frameEnc);
+
+    uint64_t computeSSD(pixel *fenc, pixel *rec, intptr_t stride, uint32_t width, uint32_t height, x265_param *param);
+
+    double ComputePSNR(x265_picture *firstPic, x265_picture *secPic, x265_param *param);
+
+    void copyPicture(x265_picture *dest, const x265_picture *src);
 
     void initRefIdx();
     void analyseRefIdx(int *numRefIdx);
@@ -333,6 +374,11 @@ public:
     void copyUserSEIMessages(Frame *frame, const x265_picture* pic_in);
 
     void configureDolbyVisionParams(x265_param* p);
+
+    void configureVideoSignalTypePreset(x265_param* p);
+
+    bool isFilterThisframe(uint8_t sliceTypeConfig, int curSliceType);
+    bool generateMcstfRef(Frame* frameEnc, FrameEncoder* currEncoder);
 
 protected:
 

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -156,9 +156,9 @@ struct VPS
     HRDInfo          hrdParameters;
     ProfileTierLevel ptl;
     uint32_t         maxTempSubLayers;
-    uint32_t         numReorderPics;
-    uint32_t         maxDecPicBuffering;
-    uint32_t         maxLatencyIncrease;
+    uint32_t         numReorderPics[MAX_T_LAYERS];
+    uint32_t         maxDecPicBuffering[MAX_T_LAYERS];
+    uint32_t         maxLatencyIncrease[MAX_T_LAYERS];
 };
 
 struct Window
@@ -235,9 +235,9 @@ struct SPS
     uint32_t maxAMPDepth;
 
     uint32_t maxTempSubLayers;   // max number of Temporal Sub layers
-    uint32_t maxDecPicBuffering; // these are dups of VPS values
-    uint32_t maxLatencyIncrease;
-    int      numReorderPics;
+    uint32_t maxDecPicBuffering[MAX_T_LAYERS]; // these are dups of VPS values
+    uint32_t maxLatencyIncrease[MAX_T_LAYERS];
+    int      numReorderPics[MAX_T_LAYERS];
 
     RPS      spsrps[MAX_NUM_SHORT_TERM_RPS];
     int      spsrpsNum;
@@ -356,11 +356,14 @@ public:
     bool        m_bCheckLDC;       // TODO: is this necessary?
     bool        m_sLFaseFlag;      // loop filter boundary flag
     bool        m_colFromL0Flag;   // collocated picture from List0 or List1 flag
+    int         m_bUseSao;
 
     int         m_iPPSQpMinus26;
     int         numRefIdxDefault[2];
     int         m_iNumRPSInSPS;
     const x265_param *m_param;
+    int         m_fieldNum;
+    Frame*      m_mcstfRefFrameList[2][MAX_MCSTF_TEMPORAL_WINDOW_LENGTH];
 
     Slice()
     {
@@ -376,6 +379,7 @@ public:
         numRefIdxDefault[1] = 1;
         m_rpsIdx = -1;
         m_chromaQpOffset[0] = m_chromaQpOffset[1] = 0;
+        m_fieldNum = 0;
     }
 
     void disableWeights();

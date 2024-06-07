@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -397,6 +397,32 @@ bool PixelHarness::check_downscale_t(downscale_t ref, downscale_t opt)
         if (memcmp(ref_destv, opt_destv, 32 * 32 * sizeof(pixel)))
             return false;
         if (memcmp(ref_destc, opt_destc, 32 * 32 * sizeof(pixel)))
+            return false;
+
+        reportfail();
+        j += INCR;
+    }
+
+    return true;
+}
+
+bool PixelHarness::check_downscaleluma_t(downscaleluma_t ref, downscaleluma_t opt)
+{
+    ALIGN_VAR_16(pixel, ref_destf[32 * 32]);
+    ALIGN_VAR_16(pixel, opt_destf[32 * 32]);
+
+    intptr_t src_stride = 64;
+    intptr_t dst_stride = 32;
+    int bx = 32;
+    int by = 32;
+    int j = 0;
+    for (int i = 0; i < ITERS; i++)
+    {
+        int index = i % TEST_CASES;
+        ref(pixel_test_buff[index] + j, ref_destf, src_stride, dst_stride, bx, by);
+        checked(opt, pixel_test_buff[index] + j, opt_destf, src_stride, dst_stride, bx, by);
+
+        if (memcmp(ref_destf, opt_destf, 32 * 32 * sizeof(pixel)))
             return false;
 
         reportfail();
@@ -2270,6 +2296,56 @@ bool PixelHarness::check_integral_inith(integralh_t ref, integralh_t opt)
     return true;
 }
 
+bool PixelHarness::check_ssimDist(ssimDistortion_t ref, ssimDistortion_t opt)
+{
+    uint32_t srcStride[5] = { 4, 8, 16, 32, 64 };
+    intptr_t dstStride[5] = { 4, 8, 16, 32, 64 };
+    int shift = X265_DEPTH - 8;
+    uint64_t opt_dest1 = 0, ref_dest1 = 0, opt_dest2 = 0, ref_dest2 = 0;
+    int j = 0;
+
+    for (int i = 0; i < ITERS; i++)
+    {
+        int index = i % TEST_CASES;
+        int k1 = rand() % 5, k2 = rand() % 5;
+        ref(pixel_test_buff[index] + j, srcStride[k1], pixel_test_buff[index + 10] + j, dstStride[k2], &ref_dest1, shift, &ref_dest2);
+        opt(pixel_test_buff[index] + j, srcStride[k1], pixel_test_buff[index + 10] + j, dstStride[k2], &opt_dest1, shift, &opt_dest2);
+
+        if (opt_dest1 != ref_dest1 && opt_dest2 != ref_dest2)
+        {
+            return false;
+        }
+
+        reportfail()
+        j += INCR;
+    }
+    return true;
+}
+
+bool PixelHarness::check_normFact(normFactor_t ref, normFactor_t opt, int block)
+{
+    int shift = X265_DEPTH - 8;
+    uint64_t opt_dest = 0, ref_dest = 0;
+    int j = 0;
+    int blockSize = 4 << block;
+
+    for (int i = 0; i < ITERS; i++)
+    {
+        int index = i % TEST_CASES;
+        ref(pixel_test_buff[index] + j, blockSize, shift, &ref_dest);
+        opt(pixel_test_buff[index] + j, blockSize, shift, &opt_dest);
+
+        if (opt_dest != ref_dest)
+        {
+            return false;
+        }
+
+        reportfail()
+            j += INCR;
+    }
+    return true;
+}
+
 bool PixelHarness::testPU(int part, const EncoderPrimitives& ref, const EncoderPrimitives& opt)
 {
     if (opt.pu[part].satd)
@@ -2607,6 +2683,15 @@ bool PixelHarness::testCorrectness(const EncoderPrimitives& ref, const EncoderPr
             }
         }
 
+        if (opt.cu[i].ssimDist)
+        {
+            if (!check_ssimDist(ref.cu[i].ssimDist, opt.cu[i].ssimDist))
+            {
+                printf("\nssimDist[%dx%d] failed!\n", 4 << i, 4 << i);
+                return false;
+            }
+        }
+
         if (i < BLOCK_64x64)
         {
             /* TU only primitives */
@@ -2730,6 +2815,15 @@ bool PixelHarness::testCorrectness(const EncoderPrimitives& ref, const EncoderPr
         if (!check_downscale_t(ref.frameInitLowres, opt.frameInitLowres))
         {
             printf("downscale failed!\n");
+            return false;
+        }
+    }
+
+    if (opt.frameSubSampleLuma)
+    {
+        if (!check_downscaleluma_t(ref.frameSubSampleLuma, opt.frameSubSampleLuma))
+        {
+            printf("SubSample Luma failed!\n");
             return false;
         }
     }
@@ -3093,6 +3187,19 @@ bool PixelHarness::testCorrectness(const EncoderPrimitives& ref, const EncoderPr
             return false;
         }
     }
+
+    for (int i = BLOCK_8x8; i < NUM_CU_SIZES; i++)
+    {
+        if (opt.cu[i].normFact)
+        {
+            if (!check_normFact(ref.cu[i].normFact, opt.cu[i].normFact, i))
+            {
+                printf("\nnormFact[%dx%d] failed!\n", 4 << i, 4 << i);
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -3392,6 +3499,14 @@ void PixelHarness::measureSpeed(const EncoderPrimitives& ref, const EncoderPrimi
             HEADER("psy_cost_pp[%dx%d]", 4 << i, 4 << i);
             REPORT_SPEEDUP(opt.cu[i].psy_cost_pp, ref.cu[i].psy_cost_pp, pbuf1, STRIDE, pbuf2, STRIDE);
         }
+
+        if (opt.cu[i].ssimDist)
+        {
+            uint64_t dst1 = 0, dst2 = 0;
+            int shift = X265_DEPTH - 8;
+            printf("ssimDist[%dx%d]", 4 << i, 4 << i);
+            REPORT_SPEEDUP(opt.cu[i].ssimDist, ref.cu[i].ssimDist, pixel_test_buff[0], 32, pixel_test_buff[5], 64, &dst1, shift, &dst2);
+        }
     }
 
     if (opt.weight_pp)
@@ -3410,6 +3525,12 @@ void PixelHarness::measureSpeed(const EncoderPrimitives& ref, const EncoderPrimi
     {
         HEADER0("downscale");
         REPORT_SPEEDUP(opt.frameInitLowres, ref.frameInitLowres, pbuf2, pbuf1, pbuf2, pbuf3, pbuf4, 64, 64, 64, 64);
+    }
+
+    if (opt.frameSubSampleLuma)
+    {
+        HEADER0("downscaleluma");
+        REPORT_SPEEDUP(opt.frameSubSampleLuma, ref.frameSubSampleLuma, pbuf2, pbuf1, 64, 64, 64, 64);
     }
 
     if (opt.scale1D_128to64[NONALIGNED])
@@ -3723,6 +3844,18 @@ void PixelHarness::measureSpeed(const EncoderPrimitives& ref, const EncoderPrimi
                 break;
             }
             REPORT_SPEEDUP(opt.integral_inith[k], ref.integral_inith[k], dst_buf, pbuf1, STRIDE);
+        }
+    }
+
+    for (int i = BLOCK_8x8; i < NUM_CU_SIZES; i++)
+    {
+        if (opt.cu[i].normFact)
+        {
+            uint64_t dst = 0;
+            int blockSize = 4 << i;
+            int shift = X265_DEPTH - 8;
+            printf("normFact[%dx%d]", blockSize, blockSize);
+            REPORT_SPEEDUP(opt.cu[i].normFact, ref.cu[i].normFact, pixel_test_buff[0], blockSize, shift, &dst);
         }
     }
 }

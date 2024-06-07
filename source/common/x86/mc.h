@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *
@@ -35,6 +35,17 @@ LOWRES(avx2)
 LOWRES(xop)
 
 #undef LOWRES
+
+#define SUBSAMPLELUMA(cpu) \
+    void PFX(frame_subsample_luma_ ## cpu)(const pixel* src0, pixel* dst0, intptr_t src_stride, intptr_t dst_stride, int width, int height);
+SUBSAMPLELUMA(mmx2)
+SUBSAMPLELUMA(sse2)
+SUBSAMPLELUMA(ssse3)
+SUBSAMPLELUMA(avx)
+SUBSAMPLELUMA(avx2)
+SUBSAMPLELUMA(xop)
+
+#undef SUBSAMPLELUMA
 
 #define PROPAGATE_COST(cpu) \
     void PFX(mbtree_propagate_cost_ ## cpu)(int* dst, const uint16_t* propagateIn, const int32_t* intraCosts, \

@@ -1,10 +1,11 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Mandar Gurav <mandar@multicorewareinc.com>
  *          Mahesh Pittala <mahesh@multicorewareinc.com>
  *          Min Chen <min.chen@multicorewareinc.com>
+ *          Hongbin Liu<liuhongbin1@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -618,6 +619,23 @@ void frame_init_lowres_core(const pixel* src0, pixel* dst0, pixel* dsth, pixel* 
     }
 }
 
+static
+void frame_subsample_luma(const pixel* src0, pixel* dst0, intptr_t src_stride, intptr_t dst_stride, int width, int height)
+{
+    for (int y = 0; y < height; y++, src0 += 2 * src_stride, dst0 += dst_stride)
+    {
+        const pixel *inRow = src0;
+        const pixel *inRowBelow = src0 + src_stride;
+        pixel *target = dst0;
+        for (int x = 0; x < width; x++)
+        {
+            target[x] = (((inRow[0] + inRowBelow[0] + 1) >> 1) + ((inRow[1] + inRowBelow[1] + 1) >> 1) + 1) >> 1;
+            inRow += 2;
+            inRowBelow += 2;
+        }
+    }
+}
+
 /* structural similarity metric */
 static void ssim_4x4x2_core(const pixel* pix1, intptr_t stride1, const pixel* pix2, intptr_t stride2, int sums[2][4])
 {
@@ -876,6 +894,18 @@ static void planecopy_sp_c(const uint16_t* src, intptr_t srcStride, pixel* dst, 
     }
 }
 
+static void planecopy_pp_shr_c(const pixel* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int width, int height, int shift)
+{
+    for (int r = 0; r < height; r++)
+    {
+        for (int c = 0; c < width; c++)
+            dst[c] = (pixel)((src[c] >> shift));
+
+        dst += dstStride;
+        src += srcStride;
+    }
+}
+
 static void planecopy_sp_shl_c(const uint16_t* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int width, int height, int shift, uint16_t mask)
 {
     for (int r = 0; r < height; r++)
@@ -931,6 +961,44 @@ static void cuTreeFix8Unpack(double *dst, uint16_t *src, int count)
     {
         int16_t qpFix8 = src[i];
         dst[i] = (double)(qpFix8) / 256.0;
+    }
+}
+
+template<int log2TrSize>
+static void ssimDist_c(const pixel* fenc, uint32_t fStride, const pixel* recon, intptr_t rstride, uint64_t *ssBlock, int shift, uint64_t *ac_k)
+{
+    *ssBlock = 0;
+    int trSize = 1 << log2TrSize;
+    for (int y = 0; y < trSize; y++)
+    {
+        for (int x = 0; x < trSize; x++)
+        {
+            int temp = fenc[y * fStride + x] - recon[y * rstride + x]; // copy of residual coeff
+            *ssBlock += temp * temp;
+        }
+    }
+
+    *ac_k = 0;
+    for (int block_yy = 0; block_yy < trSize; block_yy += 1)
+    {
+        for (int block_xx = 0; block_xx < trSize; block_xx += 1)
+        {
+            uint32_t temp = fenc[block_yy * fStride + block_xx] >> shift;
+            *ac_k += temp * temp;
+        }
+    }
+}
+
+static void normFact_c(const pixel* src, uint32_t blockSize, int shift, uint64_t *z_k)
+{
+    *z_k = 0;
+    for (uint32_t block_yy = 0; block_yy < blockSize; block_yy += 1)
+    {
+        for (uint32_t block_xx = 0; block_xx < blockSize; block_xx += 1)
+        {
+            uint32_t temp = src[block_yy * blockSize + block_xx] >> shift;
+            *z_k += temp * temp;
+        }
     }
 }
 
@@ -1271,17 +1339,32 @@ void setupPixelPrimitives_c(EncoderPrimitives &p)
     p.scale1D_128to64[NONALIGNED] = p.scale1D_128to64[ALIGNED] = scale1D_128to64;
     p.scale2D_64to32 = scale2D_64to32;
     p.frameInitLowres = frame_init_lowres_core;
+    p.frameInitLowerRes = frame_init_lowres_core;
     p.ssim_4x4x2_core = ssim_4x4x2_core;
     p.ssim_end_4 = ssim_end_4;
 
     p.planecopy_cp = planecopy_cp_c;
     p.planecopy_sp = planecopy_sp_c;
     p.planecopy_sp_shl = planecopy_sp_shl_c;
+    p.planecopy_pp_shr = planecopy_pp_shr_c;
 #if HIGH_BIT_DEPTH
     p.planeClipAndMax = planeClipAndMax_c;
 #endif
     p.propagateCost = estimateCUPropagateCost;
     p.fix8Unpack = cuTreeFix8Unpack;
     p.fix8Pack = cuTreeFix8Pack;
+
+    p.cu[BLOCK_4x4].ssimDist = ssimDist_c<2>;
+    p.cu[BLOCK_8x8].ssimDist = ssimDist_c<3>;
+    p.cu[BLOCK_16x16].ssimDist = ssimDist_c<4>;
+    p.cu[BLOCK_32x32].ssimDist = ssimDist_c<5>;
+    p.cu[BLOCK_64x64].ssimDist = ssimDist_c<6>;
+
+    p.cu[BLOCK_8x8].normFact = normFact_c;
+    p.cu[BLOCK_16x16].normFact = normFact_c;
+    p.cu[BLOCK_32x32].normFact = normFact_c;
+    p.cu[BLOCK_64x64].normFact = normFact_c;
+    /* SubSample Luma*/
+    p.frameSubSampleLuma = frame_subsample_luma;
 }
 }

@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Mandar Gurav <mandar@multicorewareinc.com>
@@ -8,6 +8,8 @@
  *          Rajesh Paulraj <rajesh@multicorewareinc.com>
  *          Praveen Kumar Tiwari <praveen@multicorewareinc.com>
  *          Min Chen <chenm003@163.com>
+ *          Hongbin Liu<liuhongbin1@huawei.com>
+ *          Yimeng Su <yimeng.su@huawei.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -204,6 +206,7 @@ typedef void (*saoCuStatsE3_t)(const int16_t *diff, const pixel *rec, intptr_t s
 typedef void (*sign_t)(int8_t *dst, const pixel *src1, const pixel *src2, const int endX);
 typedef void (*planecopy_cp_t) (const uint8_t* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int width, int height, int shift);
 typedef void (*planecopy_sp_t) (const uint16_t* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int width, int height, int shift, uint16_t mask);
+typedef void (*planecopy_pp_t) (const pixel* src, intptr_t srcStride, pixel* dst, intptr_t dstStride, int width, int height, int shift);
 typedef pixel (*planeClipAndMax_t)(pixel *src, intptr_t stride, int width, int height, uint64_t *outsum, const pixel minPix, const pixel maxPix);
 
 typedef void (*cutree_propagate_cost) (int* dst, const uint16_t* propagateIn, const int32_t* intraCosts, const uint16_t* interCosts, const int32_t* invQscales, const double* fpsFactor, int len);
@@ -227,6 +230,10 @@ typedef void(*nonPsyRdoQuant_t)(int16_t *m_resiDctCoeff, int64_t *costUncoded, i
 typedef void(*psyRdoQuant_t)(int16_t *m_resiDctCoeff, int16_t *m_fencDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, int64_t *psyScale, uint32_t blkPos);
 typedef void(*psyRdoQuant_t1)(int16_t *m_resiDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost,uint32_t blkPos);
 typedef void(*psyRdoQuant_t2)(int16_t *m_resiDctCoeff, int16_t *m_fencDctCoeff, int64_t *costUncoded, int64_t *totalUncodedCost, int64_t *totalRdCost, int64_t *psyScale, uint32_t blkPos);
+typedef void(*ssimDistortion_t)(const pixel *fenc, uint32_t fStride, const pixel *recon,  intptr_t rstride, uint64_t *ssBlock, int shift, uint64_t *ac_k);
+typedef void(*normFactor_t)(const pixel *src, uint32_t blockSize, int shift, uint64_t *z_k);
+/* SubSampling Luma */
+typedef void (*downscaleluma_t)(const pixel* src0, pixel* dstf, intptr_t src_stride, intptr_t dst_stride, int width, int height);
 /* Function pointers to optimized encoder primitives. Each pointer can reference
  * either an assembly routine, a SIMD intrinsic primitive, or a C function */
 struct EncoderPrimitives
@@ -303,6 +310,8 @@ struct EncoderPrimitives
         psyRdoQuant_t    psyRdoQuant;
 		psyRdoQuant_t1   psyRdoQuant_1p;
 		psyRdoQuant_t2   psyRdoQuant_2p;
+        ssimDistortion_t ssimDist;
+        normFactor_t     normFact;
     }
     cu[NUM_CU_SIZES];
     /* These remaining primitives work on either fixed block sizes or take
@@ -345,6 +354,9 @@ struct EncoderPrimitives
     saoCuStatsE3_t        saoCuStatsE3;
 
     downscale_t           frameInitLowres;
+    downscale_t           frameInitLowerRes;
+    /* Sub Sample Luma */
+    downscaleluma_t        frameSubSampleLuma;
     cutree_propagate_cost propagateCost;
     cutree_fix8_unpack    fix8Unpack;
     cutree_fix8_pack      fix8Pack;
@@ -353,6 +365,7 @@ struct EncoderPrimitives
     planecopy_cp_t        planecopy_cp;
     planecopy_sp_t        planecopy_sp;
     planecopy_sp_t        planecopy_sp_shl;
+    planecopy_pp_t        planecopy_pp_shr;
     planeClipAndMax_t     planeClipAndMax;
 
     weightp_sp_t          weight_sp;
@@ -457,7 +470,7 @@ inline int partitionFromLog2Size(int log2Size)
 }
 
 void setupCPrimitives(EncoderPrimitives &p);
-void setupInstrinsicPrimitives(EncoderPrimitives &p, int cpuMask);
+void setupIntrinsicPrimitives(EncoderPrimitives &p, int cpuMask);
 void setupAssemblyPrimitives(EncoderPrimitives &p, int cpuMask);
 void setupAliasPrimitives(EncoderPrimitives &p);
 #if HAVE_ALTIVEC
@@ -472,6 +485,12 @@ void setupIntraPrimitives_altivec(EncoderPrimitives &p);
 extern const int   PFX(max_bit_depth);
 extern const char* PFX(version_str);
 extern const char* PFX(build_info_str);
+#endif
+
+#if ENABLE_ASSEMBLY && X265_ARCH_ARM64
+extern "C" {
+#include "aarch64/fun-decls.h"
+}
 #endif
 
 #endif // ifndef X265_PRIMITIVES_H

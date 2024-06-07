@@ -29,7 +29,7 @@ option(NATIVE_BUILD "Target the build CPU" OFF)
 option(STATIC_LINK_CRT "Statically link C runtime for release builds" OFF)
 mark_as_advanced(FPROFILE_USE FPROFILE_GENERATE NATIVE_BUILD)
 # X265_BUILD must be incremented each time the public API is changed
-set(X265_BUILD 170)
+set(X265_BUILD 209)
 configure_file("${PROJECT_SOURCE_DIR}/x265.def.in"
                "${PROJECT_BINARY_DIR}/x265.def")
 configure_file("${PROJECT_SOURCE_DIR}/x265_config.h.in"
@@ -38,14 +38,20 @@ configure_file("${PROJECT_SOURCE_DIR}/x265_config.h.in"
 SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake" "${CMAKE_MODULE_PATH}")
 
 # System architecture detection
-string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" SYSPROC)
+if (APPLE AND CMAKE_OSX_ARCHITECTURES)
+    string(TOLOWER "${CMAKE_OSX_ARCHITECTURES}" SYSPROC)
+else()
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" SYSPROC)
+endif()
 set(X86_ALIASES x86 i386 i686 x86_64 amd64)
 set(ARM_ALIASES armv6l armv7l)
+set(ARM64_ALIASES arm64 arm64e aarch64)
 list(FIND X86_ALIASES "${SYSPROC}" X86MATCH)
 list(FIND ARM_ALIASES "${SYSPROC}" ARMMATCH)
-set(POWER_ALIASES ppc64 ppc64le)
+list(FIND ARM64_ALIASES "${SYSPROC}" ARM64MATCH)
+set(POWER_ALIASES powerpc64 powerpc64le ppc64 ppc64le)
 list(FIND POWER_ALIASES "${SYSPROC}" POWERMATCH)
-if("${SYSPROC}" STREQUAL "" OR X86MATCH GREATER "-1")
+if(X86MATCH GREATER "-1")
     set(X86 1)
     add_definitions(-DX265_ARCH_X86=1)
     if(CMAKE_CXX_FLAGS STREQUAL "-m32")
@@ -70,9 +76,22 @@ elseif(ARMMATCH GREATER "-1")
     else()
         set(CROSS_COMPILE_ARM 0)
     endif()
-    message(STATUS "Detected ARM target processor")
+	message(STATUS "Detected ARM target processor")
     set(ARM 1)
     add_definitions(-DX265_ARCH_ARM=1 -DHAVE_ARMV6=1)
+elseif(ARM64MATCH GREATER "-1")
+    #if(CROSS_COMPILE_ARM64)
+        #message(STATUS "Cross compiling for ARM64 arch")
+    #else()
+        #set(CROSS_COMPILE_ARM64 0)
+    #endif()
+    message(STATUS "Detected ARM64 target processor")
+    set(ARM64 1)
+    add_definitions(-DX265_ARCH_ARM64=1 -DHAVE_NEON)
+
+    # Options for cross compiling AArch64 optional extensions
+    option(CROSS_COMPILE_SVE "Cross Compile for SVE Target" OFF)
+    option(CROSS_COMPILE_SVE2 "Cross Compile for SVE2 Target" OFF)
 else()
     message(STATUS "CMAKE_SYSTEM_PROCESSOR value `${CMAKE_SYSTEM_PROCESSOR}` is unknown")
     message(STATUS "Please add this value near ${CMAKE_CURRENT_LIST_FILE}:${CMAKE_CURRENT_LIST_LINE}")
@@ -95,6 +114,8 @@ if(UNIX)
         if(NUMA_FOUND)
             link_directories(${NUMA_LIBRARY_DIR})
             list(APPEND CMAKE_REQUIRED_LIBRARIES numa)
+            list(APPEND CMAKE_REQUIRED_INCLUDES ${NUMA_INCLUDE_DIR})
+            list(APPEND CMAKE_REQUIRED_LINK_OPTIONS "-L${NUMA_LIBRARY_DIR}")
             check_symbol_exists(numa_node_of_cpu numa.h NUMA_V2)
             if(NUMA_V2)
                 add_definitions(-DHAVE_LIBNUMA)
@@ -231,7 +252,8 @@ if(GCC)
         endif()
     endif()
     if(ARM AND CROSS_COMPILE_ARM)
-        set(ARM_ARGS -march=armv6 -mfloat-abi=soft -mfpu=vfp -marm -fPIC)
+        message(STATUS "cross compile arm")
+		set(ARM_ARGS -march=armv6 -mfloat-abi=soft -mfpu=vfp -marm -fPIC)
     elseif(ARM)
         find_package(Neon)
         if(CPU_HAS_NEON)
@@ -241,6 +263,32 @@ if(GCC)
             set(ARM_ARGS -mcpu=native -mfloat-abi=hard -mfpu=vfp -marm)
         endif()
     endif()
+	if(ARM64 OR CROSS_COMPILE_ARM64)
+        find_package(Neon)
+        find_package(SVE)
+        find_package(SVE2)
+        if(CPU_HAS_SVE2 OR CROSS_COMPILE_SVE2)
+            message(STATUS "Found SVE2")
+	        set(ARM_ARGS -O3 -march=armv8-a+sve2 -fPIC -flax-vector-conversions)
+            add_definitions(-DHAVE_SVE2)
+            add_definitions(-DHAVE_SVE)
+            add_definitions(-DHAVE_NEON) # for NEON c/c++ primitives, as currently there is no implementation that use SVE2
+        elseif(CPU_HAS_SVE OR CROSS_COMPILE_SVE)
+            message(STATUS "Found SVE")
+	        set(ARM_ARGS -O3 -march=armv8-a+sve -fPIC -flax-vector-conversions)
+            add_definitions(-DHAVE_SVE)
+            add_definitions(-DHAVE_NEON) # for NEON c/c++ primitives, as currently there is no implementation that use SVE
+        elseif(CPU_HAS_NEON)
+            message(STATUS "Found NEON")
+            set(ARM_ARGS -fPIC -flax-vector-conversions)
+            add_definitions(-DHAVE_NEON)
+        else()
+            set(ARM_ARGS -fPIC -flax-vector-conversions)
+        endif()        
+    endif()
+	if(ENABLE_PIC)
+	list(APPEND ARM_ARGS -DPIC)
+	endif()
     add_definitions(${ARM_ARGS})
     if(FPROFILE_GENERATE)
         if(INTEL_CXX)
@@ -290,9 +338,11 @@ if(GCC)
     if (CC_HAS_FAST_MATH)
         add_definitions(-ffast-math)
     endif()
-    check_cxx_compiler_flag(-mstackrealign CC_HAS_STACK_REALIGN) 
-    if (CC_HAS_STACK_REALIGN)
-        add_definitions(-mstackrealign)
+    if (NOT (ARM64 OR CROSS_COMPILE_ARM64))
+        check_cxx_compiler_flag(-mstackrealign CC_HAS_STACK_REALIGN)
+        if (CC_HAS_STACK_REALIGN)
+            add_definitions(-mstackrealign)
+        endif()
     endif()
     # Disable exceptions. Reduce executable size, increase compability.
     check_cxx_compiler_flag(-fno-exceptions CC_HAS_FNO_EXCEPTIONS_FLAG)
@@ -332,7 +382,7 @@ if(GCC)
 endif(GCC)
 
 find_package(Nasm)
-if(ARM OR CROSS_COMPILE_ARM)
+if(ARM OR CROSS_COMPILE_ARM OR ARM64 OR CROSS_COMPILE_ARM64)
     option(ENABLE_ASSEMBLY "Enable use of assembly coded primitives" ON)
 elseif(NASM_FOUND AND X86)
     if (NASM_VERSION_STRING VERSION_LESS "2.13.0")
@@ -366,7 +416,7 @@ if(EXTRA_LIB)
 endif(EXTRA_LIB)
 mark_as_advanced(EXTRA_LIB EXTRA_LINK_FLAGS)
 
-if(X64)
+if(X64 OR ARM64 OR PPC64)
     # NOTE: We only officially support high-bit-depth compiles of x265
     # on 64bit architectures. Main10 plus large resolution plus slow
     # preset plus 32bit address space usually means malloc failure.  You
@@ -375,7 +425,7 @@ if(X64)
     # license" so to speak.  If it breaks you get to keep both halves.
     # You will need to disable assembly manually.
     option(HIGH_BIT_DEPTH "Store pixel samples as 16bit values (Main10/Main12)" OFF)
-endif(X64)
+endif(X64 OR ARM64 OR PPC64)
 if(HIGH_BIT_DEPTH)
     option(MAIN12 "Support Main12 instead of Main10" OFF)
     if(MAIN12)
@@ -422,6 +472,18 @@ else()
 endif()
 add_definitions(-DX265_NS=${X265_NS})
 
+if(ARM64)
+  if(HIGH_BIT_DEPTH)
+    if(MAIN12)
+      list(APPEND ASM_FLAGS -DHIGH_BIT_DEPTH=1 -DBIT_DEPTH=12 -DX265_NS=${X265_NS})
+    else()
+      list(APPEND ASM_FLAGS -DHIGH_BIT_DEPTH=1 -DBIT_DEPTH=10 -DX265_NS=${X265_NS})
+    endif()
+  else()
+    list(APPEND ASM_FLAGS -DHIGH_BIT_DEPTH=0 -DBIT_DEPTH=8 -DX265_NS=${X265_NS})
+  endif()
+endif(ARM64)
+
 option(WARNINGS_AS_ERRORS "Stop compiles on first warning" OFF)
 if(WARNINGS_AS_ERRORS)
     if(GCC)
@@ -467,7 +529,7 @@ if(POWER)
     endif()
 endif()
 
-include(version) # determine X265_VERSION and X265_LATEST_TAG
+include(Version) # determine X265_VERSION and X265_LATEST_TAG
 include_directories(. common encoder "${PROJECT_BINARY_DIR}")
 
 option(ENABLE_PPA "Enable PPA profiling instrumentation" OFF)
@@ -518,7 +580,7 @@ if((MSVC_IDE OR XCODE OR GCC) AND ENABLE_ASSEMBLY)
     # compile ARM arch asm files here
         enable_language(ASM)
         foreach(ASM ${ARM_ASMS})
-            set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/arm/${ASM})
+			set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/arm/${ASM})
             list(APPEND ASM_SRCS ${ASM_SRC})
             list(APPEND ASM_OBJS ${ASM}.${SUFFIX})
             add_custom_command(
@@ -527,6 +589,52 @@ if((MSVC_IDE OR XCODE OR GCC) AND ENABLE_ASSEMBLY)
                 ARGS ${ARM_ARGS} -c ${ASM_SRC} -o ${ASM}.${SUFFIX}
                 DEPENDS ${ASM_SRC})
         endforeach()
+	elseif(ARM64 OR CROSS_COMPILE_ARM64)
+    # compile ARM64 arch asm files here
+        enable_language(ASM)
+        foreach(ASM ${ARM_ASMS})
+            set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/aarch64/${ASM})
+            list(APPEND ASM_SRCS ${ASM_SRC})
+            list(APPEND ASM_OBJS ${ASM}.${SUFFIX})
+            add_custom_command(
+                OUTPUT ${ASM}.${SUFFIX}
+                COMMAND ${CMAKE_CXX_COMPILER}
+                ARGS ${ARM_ARGS} ${ASM_FLAGS} -c ${ASM_SRC} -o ${ASM}.${SUFFIX}
+                DEPENDS ${ASM_SRC})
+        endforeach()
+        if(CPU_HAS_SVE2 OR CROSS_COMPILE_SVE2)
+            foreach(ASM ${ARM_ASMS_SVE})
+                set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/aarch64/${ASM})
+                list(APPEND ASM_SRCS ${ASM_SRC})
+                list(APPEND ASM_OBJS ${ASM}.${SUFFIX})
+                add_custom_command(
+                    OUTPUT ${ASM}.${SUFFIX}
+                    COMMAND ${CMAKE_CXX_COMPILER}
+                    ARGS ${ARM_ARGS} ${ASM_FLAGS} -c ${ASM_SRC} -o ${ASM}.${SUFFIX}
+                    DEPENDS ${ASM_SRC})
+            endforeach()
+            foreach(ASM ${ARM_ASMS_SVE2})
+                set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/aarch64/${ASM})
+                list(APPEND ASM_SRCS ${ASM_SRC})
+                list(APPEND ASM_OBJS ${ASM}.${SUFFIX})
+                add_custom_command(
+                    OUTPUT ${ASM}.${SUFFIX}
+                    COMMAND ${CMAKE_CXX_COMPILER}
+                    ARGS ${ARM_ARGS} ${ASM_FLAGS} -c ${ASM_SRC} -o ${ASM}.${SUFFIX}
+                    DEPENDS ${ASM_SRC})
+            endforeach()
+        elseif(CPU_HAS_SVE OR CROSS_COMPILE_SVE)
+            foreach(ASM ${ARM_ASMS_SVE})
+                set(ASM_SRC ${CMAKE_CURRENT_SOURCE_DIR}/common/aarch64/${ASM})
+                list(APPEND ASM_SRCS ${ASM_SRC})
+                list(APPEND ASM_OBJS ${ASM}.${SUFFIX})
+                add_custom_command(
+                    OUTPUT ${ASM}.${SUFFIX}
+                    COMMAND ${CMAKE_CXX_COMPILER}
+                    ARGS ${ARM_ARGS} ${ASM_FLAGS} -c ${ASM_SRC} -o ${ASM}.${SUFFIX}
+                    DEPENDS ${ASM_SRC})
+            endforeach()
+        endif()
     elseif(X86)
     # compile X86 arch asm files here
         foreach(ASM ${MSVC_ASMS})
@@ -573,8 +681,7 @@ endif()
 if(SVTHEVC_FOUND)
     install(FILES "${SVT_HEVC_INCLUDE_DIR}/EbApi.h" DESTINATION include)
     install(FILES "${SVT_HEVC_INCLUDE_DIR}/EbErrorCodes.h" DESTINATION include)
-    install(FILES "${SVT_HEVC_INCLUDE_DIR}/EbTime.h" DESTINATION include)
-    install(FILES "${SVT_HEVC_LIBRARY}" DESTINATION ${BIN_INSTALL_DIR})
+    install(FILES "${SVT_HEVC_LIBRARY}" DESTINATION ${LIB_INSTALL_DIR})
 endif()
 
 install(FILES x265.h "${PROJECT_BINARY_DIR}/x265_config.h" DESTINATION include)
@@ -726,16 +833,16 @@ if(ENABLE_CLI)
         # Xcode seems unable to link the CLI with libs, so link as one targget
         if(ENABLE_HDR10_PLUS)
         add_executable(cli ../COPYING ${InputFiles} ${OutputFiles} ${GETOPT}
-                        x265.cpp x265.h x265cli.h
+                        x265.cpp x265.h x265cli.cpp x265cli.h abrEncApp.cpp abrEncApp.h
                         $<TARGET_OBJECTS:encoder> $<TARGET_OBJECTS:common> $<TARGET_OBJECTS:dynamicHDR10> ${ASM_OBJS})
         else()
             add_executable(cli ../COPYING ${InputFiles} ${OutputFiles} ${GETOPT}
-                        x265.cpp x265.h x265cli.h
+                        x265.cpp x265.h x265cli.cpp x265cli.h abrEncApp.cpp abrEncApp.h
                         $<TARGET_OBJECTS:encoder> $<TARGET_OBJECTS:common> ${ASM_OBJS})
         endif()
     else()
         add_executable(cli ../COPYING ${InputFiles} ${OutputFiles} ${GETOPT} ${X265_RC_FILE}
-                       ${ExportDefs} x265.cpp x265.h x265cli.h)
+                       ${ExportDefs} x265.cpp x265.h x265cli.cpp x265cli.h abrEncApp.cpp abrEncApp.h)
         if(WIN32 OR NOT ENABLE_SHARED OR INTEL_CXX)
             # The CLI cannot link to the shared library on Windows, it
             # requires internal APIs not exported from the DLL

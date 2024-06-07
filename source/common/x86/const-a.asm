@@ -2,7 +2,7 @@
 ;* const-a.asm: x86 global constants
 ;*****************************************************************************
 ;* Copyright (C) 2003-2013 x264 project
-;* Copyright (C) 2013-2017 MulticoreWare, Inc
+;* Copyright (C) 2013-2020 MulticoreWare, Inc
 ;*
 ;* Authors: Loren Merritt <lorenm@u.washington.edu>
 ;*          Fiona Glaser <fiona@x264.com>
@@ -100,7 +100,7 @@ const pw_ff00,              times  8 dw 0xff00
 const pw_2000,              times 16 dw 0x2000
 const pw_8000,              times  8 dw 0x8000
 const pw_3fff,              times 16 dw 0x3fff
-const pw_32_0,              times  4 dw 32,
+const pw_32_0,              times  4 dw 32
                             times  4 dw 0
 const pw_pixel_max,         times 16 dw ((1 << BIT_DEPTH)-1)
 

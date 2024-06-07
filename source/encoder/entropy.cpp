@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013-2017 MulticoreWare, Inc
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
 *          Min Chen <chenm003@163.com>
@@ -245,9 +245,9 @@ void Entropy::codeVPS(const VPS& vps)
 
     for (uint32_t i = 0; i < vps.maxTempSubLayers; i++)
     {
-        WRITE_UVLC(vps.maxDecPicBuffering - 1, "vps_max_dec_pic_buffering_minus1[i]");
-        WRITE_UVLC(vps.numReorderPics,         "vps_num_reorder_pics[i]");
-        WRITE_UVLC(vps.maxLatencyIncrease + 1, "vps_max_latency_increase_plus1[i]");
+        WRITE_UVLC(vps.maxDecPicBuffering[i] - 1, "vps_max_dec_pic_buffering_minus1[i]");
+        WRITE_UVLC(vps.numReorderPics[i],         "vps_num_reorder_pics[i]");
+        WRITE_UVLC(vps.maxLatencyIncrease[i] + 1, "vps_max_latency_increase_plus1[i]");
     }
 
     WRITE_CODE(0, 6, "vps_max_nuh_reserved_zero_layer_id");
@@ -291,9 +291,9 @@ void Entropy::codeSPS(const SPS& sps, const ScalingList& scalingList, const Prof
 
     for (uint32_t i = 0; i < sps.maxTempSubLayers; i++)
     {
-        WRITE_UVLC(sps.maxDecPicBuffering - 1, "sps_max_dec_pic_buffering_minus1[i]");
-        WRITE_UVLC(sps.numReorderPics,         "sps_num_reorder_pics[i]");
-        WRITE_UVLC(sps.maxLatencyIncrease + 1, "sps_max_latency_increase_plus1[i]");
+        WRITE_UVLC(sps.maxDecPicBuffering[i] - 1, "sps_max_dec_pic_buffering_minus1[i]");
+        WRITE_UVLC(sps.numReorderPics[i],         "sps_num_reorder_pics[i]");
+        WRITE_UVLC(sps.maxLatencyIncrease[i] + 1, "sps_max_latency_increase_plus1[i]");
     }
 
     WRITE_UVLC(sps.log2MinCodingBlockSize - 3,    "log2_min_coding_block_size_minus3");
@@ -418,8 +418,11 @@ void Entropy::codeProfileTier(const ProfileTierLevel& ptl, int maxTempSubLayers)
 
     if (maxTempSubLayers > 1)
     {
-         WRITE_FLAG(0, "sub_layer_profile_present_flag[i]");
-         WRITE_FLAG(0, "sub_layer_level_present_flag[i]");
+        for(int i = 0; i < maxTempSubLayers - 1; i++)
+        {
+            WRITE_FLAG(0, "sub_layer_profile_present_flag[i]");
+            WRITE_FLAG(0, "sub_layer_level_present_flag[i]");
+        }
          for (int i = maxTempSubLayers - 1; i < 8 ; i++)
              WRITE_CODE(0, 2, "reserved_zero_2bits");
     }
@@ -530,6 +533,10 @@ void Entropy::codeScalingList(const ScalingList& scalingList, uint32_t sizeId, u
     for (int i = 0; i < coefNum; i++)
     {
         data = src[scan[i]] - nextCoef;
+        if (data < -128)
+            data += 256;
+        if (data > 127)
+            data -= 256;
         nextCoef = (nextCoef + data + 256) % 256;
         WRITE_SVLC(data,  "scaling_list_delta_coef");
     }
@@ -637,11 +644,17 @@ void Entropy::codeSliceHeader(const Slice& slice, FrameData& encData, uint32_t s
             WRITE_FLAG(1, "slice_temporal_mvp_enable_flag");
     }
     const SAOParam *saoParam = encData.m_saoParam;
-    if (slice.m_sps->bUseSAO)
+    if (slice.m_bUseSao)
     {
         WRITE_FLAG(saoParam->bSaoFlag[0], "slice_sao_luma_flag");
         if (encData.m_param->internalCsp != X265_CSP_I400)
             WRITE_FLAG(saoParam->bSaoFlag[1], "slice_sao_chroma_flag");
+    }
+    else if(encData.m_param->selectiveSAO)
+    {
+        WRITE_FLAG(0, "slice_sao_luma_flag");
+        if (encData.m_param->internalCsp != X265_CSP_I400)
+            WRITE_FLAG(0, "slice_sao_chroma_flag");
     }
 
     // check if numRefIdx match the defaults (1, hard-coded in PPS). If not, override
@@ -702,7 +715,7 @@ void Entropy::codeSliceHeader(const Slice& slice, FrameData& encData, uint32_t s
 
     if (encData.m_param->maxSlices <= 1)
     {
-        bool isSAOEnabled = slice.m_sps->bUseSAO ? saoParam->bSaoFlag[0] || saoParam->bSaoFlag[1] : false;
+        bool isSAOEnabled = slice.m_sps->bUseSAO && slice.m_bUseSao ? saoParam->bSaoFlag[0] || saoParam->bSaoFlag[1] : false;
         bool isDBFEnabled = !slice.m_pps->bPicDisableDeblockingFilter;
 
         if (isSAOEnabled || isDBFEnabled)

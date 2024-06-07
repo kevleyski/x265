@@ -1,5 +1,5 @@
 /*****************************************************************************
-* Copyright (C) 2013-2017 MulticoreWare, Inc
+* Copyright (C) 2013-2020 MulticoreWare, Inc
 *
 * Authors: Steve Borho <steve@borho.org>
 *
@@ -56,7 +56,7 @@ public:
 
     void takeContents(NALList& other);
 
-    void serialize(NalUnitType nalUnitType, const Bitstream& bs);
+    void serialize(NalUnitType nalUnitType, const Bitstream& bs, uint8_t temporalID = 1);
 
     uint32_t serializeSubstreams(uint32_t* streamSizeBytes, uint32_t streamCount, const Bitstream* streams);
 };

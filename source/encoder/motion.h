@@ -1,5 +1,5 @@
 /*****************************************************************************
- * Copyright (C) 2013-2017 MulticoreWare, Inc
+ * Copyright (C) 2013-2020 MulticoreWare, Inc
  *
  * Authors: Steve Borho <steve@borho.org>
  *          Min Chen <chenm003@163.com>
@@ -44,6 +44,8 @@ protected:
     int absPartIdx;  // part index of PU, including CU offset within CTU
 
     int searchMethod;
+    int searchMethodL0;
+    int searchMethodL1;
     int subpelRefine;
 
     int blockwidth;
@@ -75,8 +77,8 @@ public:
     void init(int csp);
 
     /* Methods called at slice setup */
-
     void setSourcePU(pixel *fencY, intptr_t stride, intptr_t offset, int pwidth, int pheight, const int searchMethod, const int subpelRefine);
+    void setSourcePU(pixel *fencY, intptr_t stride, intptr_t offset, int pwidth, int pheight, const int searchMethod, const int searchL0, const int searchL1, const int subpelRefine);
     void setSourcePU(const Yuv& srcFencYuv, int ctuAddr, int cuPartIdx, int puPartIdx, int pwidth, int pheight, const int searchMethod, const int subpelRefine, bool bChroma);
 
     /* buf*() and motionEstimate() methods all use cached fenc pixels and thus
@@ -107,7 +109,8 @@ protected:
                                   int &            bPointNr,
                                   int &            bDistance,
                                   int              earlyExitIters,
-                                  int              merange);
+                                  int              merange,
+                                  int              hme);
 };
 }
 
